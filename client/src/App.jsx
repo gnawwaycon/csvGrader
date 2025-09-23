@@ -2,10 +2,24 @@ import React, { useState, useCallback } from 'react';
 import Papa from 'papaparse';
 
 // StudentCard Component
-const StudentCard = ({ name, codeHTML }) => (
+const StudentCard = ({ name, sisid, codeHTML, score, onScoreChange }) => (
     <div className="bg-gray-800 border border-gray-700 rounded-lg shadow-md overflow-hidden transition-transform duration-300 hover:scale-[1.02]">
-        <div className="p-4 bg-gray-700/50 border-b border-gray-600">
-            <h2 className="text-xl font-semibold text-white">{name}</h2>
+        <div className="p-4 bg-gray-700/50 border-b border-gray-600 flex justify-between items-center flex-wrap gap-4">
+            <div>
+                <h2 className="text-xl font-semibold text-white">{name}</h2>
+                <p className="text-sm text-gray-400">SISID: {sisid}</p>
+            </div>
+            <div className="flex items-center space-x-2">
+                <label htmlFor={`score-${sisid}`} className="text-sm font-medium text-gray-300">Score:</label>
+                <input
+                    type="number"
+                    id={`score-${sisid}`}
+                    value={score}
+                    onChange={(e) => onScoreChange(e.target.value)}
+                    placeholder="Enter score"
+                    className="w-28 bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
+                />
+            </div>
         </div>
         <div className="p-4 bg-black/20 text-sm">
             {/* Using dangerouslySetInnerHTML because the CSV content is trusted HTML */}
@@ -47,15 +61,26 @@ function App() {
                 }
 
                 const parsedSubmissions = dataRows.map((columns, index) => {
+                    // Expecting Name in Col A, SISID in Col B, Code in Col L
                     if (columns.length > 11) {
                         return {
                             id: index,
-                            name: columns[0].trim(),
-                            code: columns[11].trim() || 'No code submitted.',
+                            name: columns[0]?.trim() || 'N/A',
+                            sisid: columns[1]?.trim() || 'N/A',
+                            code: columns[11]?.trim() || 'No code submitted.',
+                            score: '', // Initialize score as empty
                         };
                     }
                     return null;
                 }).filter(Boolean); // Filter out any null entries from malformed rows
+                
+                if (parsedSubmissions.length === 0) {
+                     setError("Could not parse any valid student rows from the CSV.");
+                     return;
+                }
+
+                // Sort submissions by SISID
+                parsedSubmissions.sort((a, b) => a.sisid.localeCompare(b.sisid, undefined, { numeric: true }));
 
                 setSubmissions(parsedSubmissions);
             },
@@ -65,25 +90,71 @@ function App() {
         });
     }, []);
 
+    const handleScoreChange = useCallback((id, newScore) => {
+        setSubmissions(prevSubmissions =>
+            prevSubmissions.map(sub =>
+                sub.id === id ? { ...sub, score: newScore } : sub
+            )
+        );
+    }, []);
+    
+    const handleExport = useCallback(() => {
+        if (submissions.length === 0) {
+            setError("No data to export.");
+            return;
+        }
+
+        const exportData = submissions.map(({ name, sisid, score }) => ({
+            'Name': name,
+            'SISID': sisid,
+            'Score': score || '0', // Default score to '0' if it's empty
+        }));
+
+        const csv = Papa.unparse(exportData);
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) { // feature detection
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'student_scores.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    }, [submissions]);
+
     return (
         <div style={{ fontFamily: "'Inter', sans-serif" }} className="bg-gray-900 text-gray-100 min-h-screen flex items-start justify-center p-4 sm:p-6 lg:p-8">
             <div className="w-full max-w-4xl mx-auto">
                 <header className="text-center mb-8">
-                    <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Student Code Submission Viewer</h1>
-                    <p className="text-lg text-gray-400">Upload a CSV file to display student names and their code from Column L.</p>
+                    <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">Student Code Submission Grader</h1>
+                    <p className="text-lg text-gray-400">Upload a CSV to display student names (Column A), SISIDs (Column B), and code (Column L). Then, enter scores and export.</p>
                 </header>
 
                 <main>
-                    {/* File Upload Section */}
-                    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-8 shadow-lg">
-                        <label htmlFor="csvFileInput" className="block text-sm font-medium text-gray-300 mb-2">Upload CSV File</label>
-                        <input
-                            type="file"
-                            id="csvFileInput"
-                            accept=".csv"
-                            onChange={handleFileUpload}
-                            className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
-                        />
+                    {/* File Upload & Export Section */}
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-8 shadow-lg flex flex-col sm:flex-row gap-4 items-center">
+                        <div className="flex-grow w-full">
+                             <label htmlFor="csvFileInput" className="block text-sm font-medium text-gray-300 mb-2">Upload CSV File</label>
+                             <input
+                                type="file"
+                                id="csvFileInput"
+                                accept=".csv"
+                                onChange={handleFileUpload}
+                                className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                            />
+                        </div>
+                        <div className="w-full sm:w-auto">
+                           <button 
+                                onClick={handleExport}
+                                disabled={submissions.length === 0}
+                                className="w-full sm:w-auto mt-4 sm:mt-0 bg-green-600 text-white font-semibold py-2 px-5 rounded-full hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300"
+                           >
+                               Export Scores
+                           </button>
+                        </div>
                     </div>
 
                     {/* Results Section */}
@@ -96,7 +167,14 @@ function App() {
 
                         {submissions.length > 0 ? (
                             submissions.map(submission => (
-                                <StudentCard key={submission.id} name={submission.name} codeHTML={submission.code} />
+                                <StudentCard 
+                                    key={submission.id} 
+                                    name={submission.name} 
+                                    sisid={submission.sisid}
+                                    codeHTML={submission.code}
+                                    score={submission.score}
+                                    onScoreChange={(newScore) => handleScoreChange(submission.id, newScore)}
+                                />
                             ))
                         ) : !error && (
                             <Placeholder title="No Data to Display" message="Upload a file to get started." />
@@ -109,3 +187,4 @@ function App() {
 }
 
 export default App;
+
