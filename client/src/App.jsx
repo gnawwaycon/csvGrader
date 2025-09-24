@@ -61,12 +61,12 @@ function App() {
                 }
 
                 const parsedSubmissions = dataRows.map((columns, index) => {
-                    // Expecting Name in Col A, SISID in Col B, Code in Col L
+                    // Expecting Name in Col A, SISID in Col C, Code in Col L
                     if (columns.length > 11) {
                         return {
                             id: index,
                             name: columns[0]?.trim() || 'N/A',
-                            sisid: columns[1]?.trim() || 'N/A',
+                            sisid: columns[2]?.trim() || 'N/A',
                             code: columns[11]?.trim() || 'No code submitted.',
                             score: '', // Initialize score as empty
                         };
