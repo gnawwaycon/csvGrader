@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "client-dev",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["node_modules/.bin/vite"],
+      "port": 5173,
+      "cwd": "client"
+    },
+    {
+      "name": "backend-api",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["server.js"],
+      "port": 3001,
+      "cwd": "server"
+    }
+  ]
+}
