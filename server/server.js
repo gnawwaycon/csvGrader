@@ -13,21 +13,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increased limit for large HTML code submissions
 
-// --- Rate Limiter ---
-// Gemini 3 Flash free tier: 5 requests/min → 12.5s minimum gap
-let lastRequestTime = 0;
-const MIN_INTERVAL_MS = 12500;
+// --- Gemini API Call (paid tier — no rate limiting) ---
 
-async function rateLimitedGeminiCall(prompt) {
-    const now = Date.now();
-    const elapsed = now - lastRequestTime;
-    if (elapsed < MIN_INTERVAL_MS) {
-        const waitTime = MIN_INTERVAL_MS - elapsed;
-        console.log(`Rate limiter: waiting ${(waitTime / 1000).toFixed(1)}s before next Gemini call...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-    }
-    lastRequestTime = Date.now();
-
+async function geminiCall(prompt) {
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -54,31 +42,36 @@ async function rateLimitedGeminiCall(prompt) {
 }
 
 // --- Prompt Builder ---
-function buildGradingPrompt(question, rubric, studentCode, maxScore) {
+function buildGradingPrompt(items, rubric, maxScore) {
+    const itemsText = items.map((item, idx) => {
+        return `--- QUESTION ${idx + 1} ---
+${item.questionText}
+
+STUDENT'S CODE FOR QUESTION ${idx + 1} (HTML from Canvas LMS):
+${item.code}`;
+    }).join('\n\n');
+
     return `You are an experienced programming instructor grading student code submissions.
 
-ASSIGNMENT QUESTION:
-${question}
+This submission has ${items.length} question${items.length > 1 ? 's' : ''}. Grade all questions together and provide a CUMULATIVE score.
+
+${itemsText}
 
 GRADING RUBRIC:
 ${rubric}
 
-${maxScore ? `MAXIMUM SCORE: ${maxScore}` : ''}
-
-STUDENT'S SUBMITTED CODE (HTML from Canvas LMS):
-${studentCode}
+${maxScore ? `MAXIMUM TOTAL SCORE: ${maxScore}` : ''}
 
 INSTRUCTIONS:
-1. Carefully read the assignment question and rubric.
-2. Analyze the student's code submission against the rubric criteria.
-3. The student code is HTML content exported from Canvas LMS. Parse through any HTML tags (<p>, <pre>, <code>, <br>, etc.) to read the actual code.
-4. If the submission says "No code submitted." or is empty, give a score of 0 and note that nothing was submitted.
-5. Provide a numeric score based on the rubric${maxScore ? ` (out of ${maxScore})` : ''}.
-6. Provide constructive, specific feedback explaining what the student did well and what needs improvement.
-7. Reference specific parts of the rubric in your feedback.
-8. Be encouraging but honest.
+1. Carefully read each question and the student's code for it.
+2. The student code is HTML content exported from Canvas LMS. Parse through any HTML tags (<p>, <pre>, <code>, <br>, etc.) to read the actual code.
+3. If a submission says "No code submitted." or only contains a name, give 0 for that question.
+4. Provide a CUMULATIVE numeric score across all questions based on the rubric${maxScore ? ` (out of ${maxScore})` : ''}.
+5. Provide constructive, specific feedback for each question, explaining what the student did well and what needs improvement.
+6. Reference specific parts of the rubric in your feedback.
+7. Be encouraging but honest.
 
-Respond with a JSON object containing "score" (number) and "comment" (string).`;
+Respond with a JSON object containing "score" (number — cumulative total) and "comment" (string — combined feedback for all questions).`;
 }
 
 // --- Routes ---
@@ -94,17 +87,18 @@ app.get('/api/status', (req, res) => {
 // AI Grading endpoint
 app.post('/api/grade', async (req, res) => {
     try {
-        const { studentCode, question, rubric, maxScore } = req.body;
+        const { items, rubric, maxScore } = req.body;
 
-        if (!studentCode || !question || !rubric) {
+        if (!items || !Array.isArray(items) || items.length === 0 || !rubric) {
             return res.status(400).json({
-                error: 'Missing required fields: studentCode, question, rubric'
+                error: 'Missing required fields: items (array), rubric'
             });
         }
 
-        console.log(`Grading submission (${studentCode.length} chars)...`);
-        const prompt = buildGradingPrompt(question, rubric, studentCode, maxScore);
-        const result = await rateLimitedGeminiCall(prompt);
+        const totalChars = items.reduce((sum, item) => sum + (item.code || '').length, 0);
+        console.log(`Grading submission (${items.length} items, ${totalChars} chars)...`);
+        const prompt = buildGradingPrompt(items, rubric, maxScore);
+        const result = await geminiCall(prompt);
         console.log(`Grading complete: score=${result.score}`);
 
         res.json({
