@@ -98,6 +98,7 @@ function App() {
     // AI Grading state
     const [rubric, setRubric] = useState('');
     const [maxScore, setMaxScore] = useState('');
+    const [curveExponent, setCurveExponent] = useState('1.5');
     const [gradingStatus, setGradingStatus] = useState({});
     const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0, active: false });
     const gradingAbortedRef = useRef(false);
@@ -345,6 +346,19 @@ const handleExport = useCallback(() => {
         // Build the array of objects for PapaParse to convert
         const exportData = [];
 
+        // Canvas export is always out of 3
+        const exportMaxScore = 3;
+        const rawMax = parseFloat(maxScore) || 1;
+        const n = parseFloat(curveExponent) || 1.5;
+
+        // Curve function: proportion^(1/n) * 3
+        // With n=1.5, a 60% raw → 71% curved, 65% → 75%, 70% → 79%, etc.
+        const applyCurve = (rawScore) => {
+            const proportion = Math.max(0, Math.min(1, rawScore / rawMax));
+            const curved = Math.pow(proportion, 1 / n);
+            return Math.round(curved * exportMaxScore * 100) / 100; // round to 2 decimals
+        };
+
         // 1. The mandatory "Points Possible" row
         exportData.push({
             "Student": "Points Possible",
@@ -352,18 +366,20 @@ const handleExport = useCallback(() => {
             "SIS User ID": "",
             "SIS Login ID": "",
             "Section": "",
-            [assignmentColumn]: maxScore || "" // Uses the maxScore from your AI setup state
+            [assignmentColumn]: exportMaxScore
         });
 
-        // 2. Loop through submissions and add the student rows
+        // 2. Loop through submissions and apply curve + scale to 3
         submissions.forEach(({ sisid, score }) => {
+            const rawScore = parseFloat(score) || 0;
+            const curvedScore = applyCurve(rawScore);
             exportData.push({
                 "Student": "",
                 "ID": "",
                 "SIS User ID": sisid,
                 "SIS Login ID": "",
                 "Section": "",
-                [assignmentColumn]: score || "0"
+                [assignmentColumn]: curvedScore
             });
         });
 
@@ -383,7 +399,7 @@ const handleExport = useCallback(() => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url); // Clean up the object URL
         }
-    }, [submissions, assignmentName, assignmentId, maxScore]);
+    }, [submissions, assignmentName, assignmentId, maxScore, curveExponent]);
 
     const handleExportComments = useCallback(() => {
         if (submissions.length === 0) {
@@ -539,6 +555,23 @@ const handleExport = useCallback(() => {
                                                 value={maxScore}
                                                 onChange={(e) => setMaxScore(e.target.value)}
                                                 placeholder="e.g. 10"
+                                                className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
+                                            />
+                                        </div>
+                                        <div className="w-36">
+                                            <label htmlFor="curveInput" className="block text-sm font-medium text-gray-300 mb-1">
+                                                Curve (nth root)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                id="curveInput"
+                                                value={curveExponent}
+                                                onChange={(e) => setCurveExponent(e.target.value)}
+                                                step="0.1"
+                                                min="1"
+                                                max="5"
+                                                placeholder="1.5"
+                                                title="Higher = more generous curve. 1 = no curve, 1.5 = default, 2 = square root"
                                                 className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
                                             />
                                         </div>
