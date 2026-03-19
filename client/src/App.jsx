@@ -461,6 +461,71 @@ const handleExport = useCallback(() => {
                         />
                     </div>
 
+                    {/* Curve & Export Section — shows once any student has a score */}
+                    {submissions.some(s => s.score !== null && s.score !== undefined && s.score !== '') && (() => {
+                        const rawMax = parseFloat(maxScore) || 1;
+                        const n = parseFloat(curveExponent) || 1.5;
+                        const scored = submissions.filter(s => s.score !== null && s.score !== undefined && s.score !== '');
+                        const curved = scored.map(s => {
+                            const p = Math.max(0, Math.min(1, parseFloat(s.score) / rawMax));
+                            return Math.pow(p, 1 / n) * 3;
+                        });
+                        const avg = curved.length ? curved.reduce((a, b) => a + b, 0) / curved.length : 0;
+                        const avgPct = ((avg / 3) * 100).toFixed(1);
+                        return (
+                            <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 mb-8 shadow-lg">
+                                <h3 className="text-lg font-semibold text-white mb-3">Curve & Export</h3>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    Scores are scaled to <strong className="text-white">3 points</strong> for Canvas import. Adjust the curve exponent below — higher values give a more generous curve.
+                                </p>
+                                <div className="flex flex-wrap items-end gap-4 mb-4">
+                                    <div className="w-36">
+                                        <label htmlFor="curveInput" className="block text-sm font-medium text-gray-300 mb-1">
+                                            Curve (nth root)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="curveInput"
+                                            value={curveExponent}
+                                            onChange={(e) => setCurveExponent(e.target.value)}
+                                            step="0.1"
+                                            min="1"
+                                            max="5"
+                                            placeholder="1.5"
+                                            className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
+                                        />
+                                    </div>
+                                    <div className="text-sm text-gray-300 pb-2">
+                                        <span className="text-gray-500">Preview:</span>{' '}
+                                        <strong className={`${parseFloat(avgPct) >= 78 && parseFloat(avgPct) <= 85 ? 'text-green-400' : 'text-amber-400'}`}>
+                                            {avgPct}% avg
+                                        </strong>
+                                        <span className="text-gray-500 ml-1">({scored.length} graded)</span>
+                                    </div>
+                                </div>
+                                <div className="text-xs text-gray-500 mb-4">
+                                    1 = no curve &nbsp;|&nbsp; 1.5 = mild &nbsp;|&nbsp; 2 = square root &nbsp;|&nbsp; 3 = cube root
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={handleExport}
+                                        disabled={!assignmentName.trim() || !assignmentId.trim()}
+                                        className="bg-green-600 text-white font-semibold py-2 px-5 rounded-full hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300"
+                                    >
+                                        Export Scores
+                                    </button>
+                                    <button
+                                        onClick={handleExportComments}
+                                        disabled={!assignmentName.trim() || !assignmentId.trim()}
+                                        className="bg-purple-600 text-white font-semibold py-2 px-5 rounded-full hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300"
+                                    >
+                                        Export Canvas Comments
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {/* Assignment Metadata + AI Grading Setup */}
                     {submissions.length > 0 && (
                         <>
@@ -612,70 +677,6 @@ const handleExport = useCallback(() => {
                         )}
                     </div>
 
-                    {/* Curve & Export Section — shows once any student has a score */}
-                    {submissions.some(s => s.score !== null && s.score !== undefined && s.score !== '') && (() => {
-                        const rawMax = parseFloat(maxScore) || 1;
-                        const n = parseFloat(curveExponent) || 1.5;
-                        const scored = submissions.filter(s => s.score !== null && s.score !== undefined && s.score !== '');
-                        const curved = scored.map(s => {
-                            const p = Math.max(0, Math.min(1, parseFloat(s.score) / rawMax));
-                            return Math.pow(p, 1 / n) * 3;
-                        });
-                        const avg = curved.length ? curved.reduce((a, b) => a + b, 0) / curved.length : 0;
-                        const avgPct = ((avg / 3) * 100).toFixed(1);
-                        return (
-                            <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 mt-8 shadow-lg">
-                                <h3 className="text-lg font-semibold text-white mb-3">Curve & Export</h3>
-                                <p className="text-sm text-gray-400 mb-4">
-                                    Scores are scaled to <strong className="text-white">3 points</strong> for Canvas import. Adjust the curve exponent below — higher values give a more generous curve.
-                                </p>
-                                <div className="flex flex-wrap items-end gap-4 mb-4">
-                                    <div className="w-36">
-                                        <label htmlFor="curveInput" className="block text-sm font-medium text-gray-300 mb-1">
-                                            Curve (nth root)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            id="curveInput"
-                                            value={curveExponent}
-                                            onChange={(e) => setCurveExponent(e.target.value)}
-                                            step="0.1"
-                                            min="1"
-                                            max="5"
-                                            placeholder="1.5"
-                                            className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
-                                        />
-                                    </div>
-                                    <div className="text-sm text-gray-300 pb-2">
-                                        <span className="text-gray-500">Preview:</span>{' '}
-                                        <strong className={`${parseFloat(avgPct) >= 78 && parseFloat(avgPct) <= 85 ? 'text-green-400' : 'text-amber-400'}`}>
-                                            {avgPct}% avg
-                                        </strong>
-                                        <span className="text-gray-500 ml-1">({scored.length} graded)</span>
-                                    </div>
-                                </div>
-                                <div className="text-xs text-gray-500 mb-4">
-                                    1 = no curve &nbsp;|&nbsp; 1.5 = mild &nbsp;|&nbsp; 2 = square root &nbsp;|&nbsp; 3 = cube root
-                                </div>
-                                <div className="flex gap-3">
-                                    <button
-                                        onClick={handleExport}
-                                        disabled={!assignmentName.trim() || !assignmentId.trim()}
-                                        className="bg-green-600 text-white font-semibold py-2 px-5 rounded-full hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300"
-                                    >
-                                        Export Scores
-                                    </button>
-                                    <button
-                                        onClick={handleExportComments}
-                                        disabled={!assignmentName.trim() || !assignmentId.trim()}
-                                        className="bg-purple-600 text-white font-semibold py-2 px-5 rounded-full hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300"
-                                    >
-                                        Export Canvas Comments
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })()}
                 </main>
             </div>
         </div>
