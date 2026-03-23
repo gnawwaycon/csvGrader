@@ -283,8 +283,8 @@ function App() {
         submissions.forEach(s => { allLoading[s.id] = 'loading'; });
         setGradingStatus(prev => ({ ...prev, ...allLoading }));
 
-        // Grade in parallel batches of 5
-        const BATCH_SIZE = 5;
+        // Grade in parallel batches of 15
+        const BATCH_SIZE = 15;
         for (let i = 0; i < submissions.length; i += BATCH_SIZE) {
             if (gradingAbortedRef.current) break;
 
