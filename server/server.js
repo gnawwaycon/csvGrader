@@ -18,6 +18,7 @@ app.use(express.json({ limit: '10mb' })); // Increased limit for large HTML code
 async function geminiCall(prompt) {
     const response = await ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
+        // model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
             responseMimeType: 'application/json',

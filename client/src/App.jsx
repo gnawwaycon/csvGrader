@@ -99,6 +99,8 @@ function App() {
     const [rubric, setRubric] = useState('');
     const [maxScore, setMaxScore] = useState('');
     const [curveExponent, setCurveExponent] = useState('1.5');
+    const [exportPoints, setExportPoints] = useState('3');
+    const [minScore, setMinScore] = useState('1');
     const [gradingStatus, setGradingStatus] = useState({});
     const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0, active: false });
     const gradingAbortedRef = useRef(false);
@@ -346,17 +348,17 @@ const handleExport = useCallback(() => {
         // Build the array of objects for PapaParse to convert
         const exportData = [];
 
-        // Canvas export is always out of 3
-        const exportMaxScore = 3;
+        const exportMaxScore = parseFloat(exportPoints) || 3;
         const rawMax = parseFloat(maxScore) || 1;
         const n = parseFloat(curveExponent) || 1.5;
+        const floor = parseFloat(minScore) || 0;
 
-        // Curve function: proportion^(1/n) * 3
-        // With n=1.5, a 60% raw → 71% curved, 65% → 75%, 70% → 79%, etc.
+        // Curve function: proportion^(1/n) * exportMaxScore, with minimum floor
         const applyCurve = (rawScore) => {
             const proportion = Math.max(0, Math.min(1, rawScore / rawMax));
             const curved = Math.pow(proportion, 1 / n);
-            return Math.round(curved * exportMaxScore * 100) / 100; // round to 2 decimals
+            const scaled = Math.round(curved * exportMaxScore * 100) / 100;
+            return Math.max(floor, scaled);
         };
 
         // 1. The mandatory "Points Possible" row
@@ -399,7 +401,7 @@ const handleExport = useCallback(() => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url); // Clean up the object URL
         }
-    }, [submissions, assignmentName, assignmentId, maxScore, curveExponent]);
+    }, [submissions, assignmentName, assignmentId, maxScore, curveExponent, exportPoints, minScore]);
 
     const handleExportComments = useCallback(() => {
         if (submissions.length === 0) {
@@ -421,7 +423,7 @@ const handleExport = useCallback(() => {
 
         const exportData = studentsWithComments.map(({ sisid, comment }) => ({
             'ID': sisid,
-            [assignmentColumn]: comment,
+            [assignmentColumn]: comment.replace(/\n/g, '<br>'),
         }));
 
         const csv = Papa.unparse(exportData);
@@ -465,18 +467,20 @@ const handleExport = useCallback(() => {
                     {submissions.some(s => s.score !== null && s.score !== undefined && s.score !== '') && (() => {
                         const rawMax = parseFloat(maxScore) || 1;
                         const n = parseFloat(curveExponent) || 1.5;
+                        const ep = parseFloat(exportPoints) || 3;
+                        const floor = parseFloat(minScore) || 0;
                         const scored = submissions.filter(s => s.score !== null && s.score !== undefined && s.score !== '');
                         const curved = scored.map(s => {
                             const p = Math.max(0, Math.min(1, parseFloat(s.score) / rawMax));
-                            return Math.pow(p, 1 / n) * 3;
+                            return Math.max(floor, Math.pow(p, 1 / n) * ep);
                         });
                         const avg = curved.length ? curved.reduce((a, b) => a + b, 0) / curved.length : 0;
-                        const avgPct = ((avg / 3) * 100).toFixed(1);
+                        const avgPct = ((avg / ep) * 100).toFixed(1);
                         return (
                             <div className="bg-gray-800 border border-gray-700 rounded-lg p-5 mb-8 shadow-lg">
                                 <h3 className="text-lg font-semibold text-white mb-3">Curve & Export</h3>
                                 <p className="text-sm text-gray-400 mb-4">
-                                    Scores are scaled to <strong className="text-white">3 points</strong> for Canvas import. Adjust the curve exponent below — higher values give a more generous curve.
+                                    Adjust curve, point value, and minimum score before exporting.
                                 </p>
                                 <div className="flex flex-wrap items-end gap-4 mb-4">
                                     <div className="w-36">
@@ -495,6 +499,36 @@ const handleExport = useCallback(() => {
                                             className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
                                         />
                                     </div>
+                                    <div className="w-32">
+                                        <label htmlFor="exportPointsInput" className="block text-sm font-medium text-gray-300 mb-1">
+                                            Export Points
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="exportPointsInput"
+                                            value={exportPoints}
+                                            onChange={(e) => setExportPoints(e.target.value)}
+                                            step="1"
+                                            min="1"
+                                            placeholder="3"
+                                            className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
+                                        />
+                                    </div>
+                                    <div className="w-32">
+                                        <label htmlFor="minScoreInput" className="block text-sm font-medium text-gray-300 mb-1">
+                                            Min Score
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="minScoreInput"
+                                            value={minScore}
+                                            onChange={(e) => setMinScore(e.target.value)}
+                                            step="0.1"
+                                            min="0"
+                                            placeholder="1"
+                                            className="w-full bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2"
+                                        />
+                                    </div>
                                     <div className="text-sm text-gray-300 pb-2">
                                         <span className="text-gray-500">Preview:</span>{' '}
                                         <strong className={`${parseFloat(avgPct) >= 78 && parseFloat(avgPct) <= 85 ? 'text-green-400' : 'text-amber-400'}`}>
@@ -504,7 +538,7 @@ const handleExport = useCallback(() => {
                                     </div>
                                 </div>
                                 <div className="text-xs text-gray-500 mb-4">
-                                    1 = no curve &nbsp;|&nbsp; 1.5 = mild &nbsp;|&nbsp; 2 = square root &nbsp;|&nbsp; 3 = cube root
+                                    Curve: 1 = none &nbsp;|&nbsp; 1.5 = mild &nbsp;|&nbsp; 2 = √ &nbsp;|&nbsp; 3 = ∛ &nbsp;&nbsp;·&nbsp;&nbsp; Min score floors any export score below that value
                                 </div>
                                 <div className="flex gap-3">
                                     <button
