@@ -51,12 +51,11 @@ const StudentCard = ({
                 />
             </div>
         </div>
-        {/* Render each item */}
+        {/* Render each item — just Q# label + code */}
         {items.map((item, idx) => (
             <div key={idx} className="border-b border-gray-700 last:border-b-0">
-                <div className="px-4 pt-3 pb-1">
-                    <p className="text-xs font-semibold text-amber-400 mb-1">Question {idx + 1}</p>
-                    <p className="text-sm text-gray-300 mb-2">{item.questionText}</p>
+                <div className="px-4 pt-2 pb-0">
+                    <p className="text-xs font-semibold text-amber-400">Q{idx + 1}</p>
                 </div>
                 <div className="px-4 pb-3 bg-black/20 text-sm">
                     <div dangerouslySetInnerHTML={{ __html: item.code || '<p class="text-gray-400">No code submitted.</p>' }} />
@@ -595,19 +594,6 @@ const handleExport = useCallback(() => {
                                 </p>
                             </div>
 
-                            {/* Detected Items Info */}
-                            {itemMeta.length > 0 && (
-                                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 mb-4 text-sm text-gray-400">
-                                    <span className="font-medium text-gray-300">{itemMeta.length} question{itemMeta.length > 1 ? 's' : ''} detected:</span>
-                                    {itemMeta.map((meta, idx) => (
-                                        <span key={idx} className="ml-2 text-gray-500">
-                                            Q{idx + 1}: {meta.questionText.substring(0, 60)}{meta.questionText.length > 60 ? '...' : ''}
-                                            {idx < itemMeta.length - 1 ? ' |' : ''}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-
                             {/* AI Grading Setup */}
                             <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-8 shadow-lg">
                                 <h3 className="text-lg font-semibold text-white mb-3">AI Grading Setup</h3>
@@ -679,6 +665,21 @@ const handleExport = useCallback(() => {
                                     )}
                                 </div>
                             </div>
+
+                            {/* Questions Overview */}
+                            {itemMeta.length > 0 && (
+                                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 mb-4 text-sm">
+                                    <p className="font-medium text-gray-300 mb-2">{itemMeta.length} question{itemMeta.length > 1 ? 's' : ''} detected:</p>
+                                    <div className="space-y-1">
+                                        {itemMeta.map((meta, idx) => (
+                                            <div key={idx} className="flex gap-2">
+                                                <span className="text-amber-400 font-semibold shrink-0">Q{idx + 1}:</span>
+                                                <span className="text-gray-400">{meta.questionText}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )}
 

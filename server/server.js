@@ -6,57 +6,35 @@ const { GoogleGenAI } = require('@google/genai');
 const app = express();
 const PORT = 3001;
 
+const MODEL = 'gemini-3.1-pro-preview';
+
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' })); // Increased limit for large HTML code submissions
+app.use(express.json({ limit: '10mb' }));
 
-// --- Gemini API Call (paid tier — no rate limiting) ---
+// --- Context Cache State ---
+let currentCache = null;  // { name, rubricKey }
 
-async function geminiCall(prompt) {
-    const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        // model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-                type: 'object',
-                properties: {
-                    score: {
-                        type: 'number',
-                        description: 'The numeric score for the student submission'
-                    },
-                    comment: {
-                        type: 'string',
-                        description: 'Detailed feedback comment for the student'
-                    }
-                },
-                required: ['score', 'comment']
-            }
-        }
-    });
-
-    return JSON.parse(response.text);
+// Build a key to detect when rubric/questions change
+function buildCacheKey(questionTexts, rubric, maxScore) {
+    return JSON.stringify({ questionTexts, rubric, maxScore });
 }
 
-// --- Prompt Builder ---
-function buildGradingPrompt(items, rubric, maxScore) {
-    const itemsText = items.map((item, idx) => {
-        return `--- QUESTION ${idx + 1} ---
-${item.questionText}
-
-STUDENT'S CODE FOR QUESTION ${idx + 1} (HTML from Canvas LMS):
-${item.code}`;
-    }).join('\n\n');
+// Build the static system instruction (rubric + AP rules + question texts)
+function buildSystemInstruction(questionTexts, rubric, maxScore) {
+    const questionsBlock = questionTexts.map((q, idx) =>
+        `QUESTION ${idx + 1}: ${q}`
+    ).join('\n');
 
     return `You are an experienced AP Computer Science A exam reader grading student code submissions according to official College Board scoring guidelines.
 
-This submission has ${items.length} question${items.length > 1 ? 's' : ''}. Grade all questions together and provide a CUMULATIVE score.
+There are ${questionTexts.length} question${questionTexts.length > 1 ? 's' : ''} on this assignment. Grade all questions together and provide a CUMULATIVE score.
 
-${itemsText}
+QUESTIONS ON THIS ASSIGNMENT:
+${questionsBlock}
 
 GRADING RUBRIC:
 ${rubric}
@@ -107,15 +85,104 @@ DIGITAL SUBMISSION RULES:
 
 INSTRUCTIONS:
 1. Carefully read each question and the student's code for it.
-2. The student code is HTML content exported from Canvas LMS. Parse through any HTML tags (<p>, <pre>, <code>, <br>, etc.) to read the actual code.
-3. If a submission says "No code submitted." or only contains a name, give 0 for that question.
-4. Apply the rubric FIRST to determine earned points, then assess penalties per the AP universal rules above.
-5. Provide a CUMULATIVE numeric score across all questions${maxScore ? ` (out of ${maxScore})` : ''}.
-6. Provide constructive, specific feedback for each question, explaining what the student did well and what needs improvement.
-7. Reference specific parts of the rubric in your feedback. If penalties are applied, state which penalty category (v/w/x/y/z) and why.
-8. Be encouraging but honest.
+2. If a submission says "No code submitted." or only contains a name, give 0 for that question.
+3. Apply the rubric FIRST to determine earned points, then assess penalties per the AP universal rules above.
+4. Provide a CUMULATIVE numeric score across all questions${maxScore ? ` (out of ${maxScore})` : ''}.
+5. Provide constructive, specific feedback for each question, explaining what the student did well and what needs improvement.
+6. Reference specific parts of the rubric in your feedback. If penalties are applied, state which penalty category (v/w/x/y/z) and why.
 
 Respond with a JSON object containing "score" (number — cumulative total) and "comment" (string — combined feedback for all questions).`;
+}
+
+// Get or create a context cache for this grading session
+async function getOrCreateCache(questionTexts, rubric, maxScore) {
+    const key = buildCacheKey(questionTexts, rubric, maxScore);
+
+    // Reuse existing cache if rubric/questions haven't changed
+    if (currentCache && currentCache.rubricKey === key) {
+        console.log('Reusing existing context cache.');
+        return currentCache.name;
+    }
+
+    // Delete old cache if it exists
+    if (currentCache) {
+        try {
+            await ai.caches.delete({ name: currentCache.name });
+            console.log('Deleted old context cache.');
+        } catch (e) {
+            // Ignore deletion errors (cache may have expired)
+        }
+    }
+
+    const systemInstruction = buildSystemInstruction(questionTexts, rubric, maxScore);
+
+    console.log('Creating new context cache...');
+    const cached = await ai.caches.create({
+        model: MODEL,
+        config: {
+            systemInstruction,
+            displayName: 'grading-session',
+            ttl: '3600s', // 1 hour
+        }
+    });
+
+    currentCache = { name: cached.name, rubricKey: key };
+    console.log(`Context cache created: ${cached.name} (tokens: ${cached.usageMetadata?.totalTokenCount || '?'})`);
+    return cached.name;
+}
+
+// --- HTML Cleaner ---
+function cleanHtml(html) {
+    if (!html) return '';
+    return html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\t/g, '    ')
+        .replace(/ {2,}/g, m => m)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+// --- Per-Student Prompt (only the code, since rubric/questions are cached) ---
+function buildStudentPrompt(items) {
+    return items.map((item, idx) =>
+        `--- STUDENT'S CODE FOR QUESTION ${idx + 1} ---\n${cleanHtml(item.code)}`
+    ).join('\n\n');
+}
+
+// --- Gemini API Call with Context Cache ---
+async function geminiCall(studentPrompt, cacheName) {
+    const response = await ai.models.generateContent({
+        model: MODEL,
+        contents: studentPrompt,
+        config: {
+            cachedContent: cacheName,
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: 'object',
+                properties: {
+                    score: {
+                        type: 'number',
+                        description: 'The numeric score for the student submission'
+                    },
+                    comment: {
+                        type: 'string',
+                        description: 'Detailed feedback comment for the student'
+                    }
+                },
+                required: ['score', 'comment']
+            }
+        }
+    });
+
+    return JSON.parse(response.text);
 }
 
 // --- Routes ---
@@ -139,10 +206,16 @@ app.post('/api/grade', async (req, res) => {
             });
         }
 
+        // Get or create context cache for the static parts
+        const questionTexts = items.map(item => item.questionText);
+        const cacheName = await getOrCreateCache(questionTexts, rubric, maxScore);
+
+        // Build per-student prompt (just the code)
+        const studentPrompt = buildStudentPrompt(items);
         const totalChars = items.reduce((sum, item) => sum + (item.code || '').length, 0);
-        console.log(`Grading submission (${items.length} items, ${totalChars} chars)...`);
-        const prompt = buildGradingPrompt(items, rubric, maxScore);
-        const result = await geminiCall(prompt);
+        console.log(`Grading submission (${items.length} items, ${totalChars} chars, cached)...`);
+
+        const result = await geminiCall(studentPrompt, cacheName);
         console.log(`Grading complete: score=${result.score}`);
 
         res.json({
